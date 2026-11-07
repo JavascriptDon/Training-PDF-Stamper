@@ -1,11 +1,11 @@
 # Training PDF Stamper
 
-Creates a personalised copy of the training PDF for each recipient, stamping their email address diagonally across every page. Each copy goes in its own folder, and the script checks that every stamp was written correctly.
+Creates a personalised copy of each configured PDF template for every recipient, stamping their email address diagonally across every page. Each recipient gets a folder containing a copy of every template, and the script checks that every stamp was written correctly.
 
 ## Requirements
 
 - Node.js 18 or later
-- The template PDF, `BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf`, in the same folder as `stamp.tsx`
+- Every configured template PDF in the same folder as `stamp.tsx`
 
 ## Setup
 
@@ -18,8 +18,10 @@ npm install -D @types/pdf-parse tsx typescript
 
 ## Usage
 
-1. Open `stamp.tsx` and replace the addresses in the `recipients` array inside `main()` with your buyer list.
-2. Run the script:
+1. Put all the template PDFs beside `stamp.tsx`.
+2. In `stamp.tsx`, add each template's filename to the `templateFiles` array. The existing guide is already listed.
+3. Replace the addresses in the `recipients` array inside `main()` with your buyer list. Each address is stamped onto every listed template.
+4. Run the script:
 
 ```bash
 npx tsx stamp.tsx
@@ -29,10 +31,9 @@ npx tsx stamp.tsx
 
 ## Output
 
-Files are written to `stamped/`, one folder per recipient:
+Files are written to `stamped/`, one folder per recipient, with one stamped PDF for each template:
 
 <img width="944" height="503" alt="image" src="https://github.com/user-attachments/assets/2a50710b-98f8-4542-b57e-621e99926abb" />
 
 
 https://github.com/user-attachments/assets/6c8e45d2-5073-49d6-b791-01d61e492642
-

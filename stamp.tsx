@@ -4,98 +4,219 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pdfParse from "pdf-parse";
 
-// Folder this script lives in, so paths work wherever you run it from
+// Resolve paths relative to this script so the tool works from any working directory.
 const here = dirname(fileURLToPath(import.meta.url));
 const templateFiles = [
   "BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf",
 ];
 const outDir = join(here, "stamped");
 
-// Basic format check. Good enough to catch typos, but can't confirm the mailbox exists
+// Basic email validation: catches obvious address mistakes without guaranteeing the mailbox exists.
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+type Manifest = {
+  runId: string;
+  createdAt: string;
+  templates: string[];
+  recipients: string[];
+};
+
+// Keep the email validation logic in one place so the same rule is reused everywhere.
 function isValidEmail(email: string): boolean {
   return EMAIL_PATTERN.test(email);
 }
 
-// Each recipient gets their own folder, e.g. stamped/alice@example.com/
-// The PDF inside keeps the template filename, so the email isn't in the name
+// Build a timestamp-based run ID that is sortable and readable in folder names.
+function createRunId(): string {
+  const now = new Date();
+
+  return (
+    `${now.getFullYear()}` +
+    `${String(now.getMonth() + 1).padStart(2, "0")}` +
+    `${String(now.getDate()).padStart(2, "0")}` +
+    "-" +
+    `${String(now.getHours()).padStart(2, "0")}` +
+    `${String(now.getMinutes()).padStart(2, "0")}` +
+    `${String(now.getSeconds()).padStart(2, "0")}`
+  );
+}
+
+// Store each recipient in its own folder, e.g. stamped/alice@example.com/.
+// The PDF keeps the original template filename, so the email is only used for the folder name.
 function outputFile(outDir: string, email: string, templateFile: string) {
-  // Strip characters that aren't safe in folder names, such as slashes
+  // Replace unsafe characters so the recipient folder remains valid on disk.
   const safeFolder = email.replace(/[^a-z0-9@.-]/gi, "_");
   return join(outDir, safeFolder, basename(templateFile));
 }
 
-// Stamps one copy of the template PDF with a recipient's email
+// Stamp a single document with the recipient's email and write it to the output folder.
 async function stampCopy(
   templatePath: string,
   templateFile: string,
   email: string,
-  outDir: string,
 ) {
-  // Reload the template for every recipient so stamps never pile up on each other
-  const pdf = await PDFDocument.load(await readFile(templatePath));
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const pdf = await PDFDocument.load(
+    await readFile(templatePath),
+  );
+
+  const font = await pdf.embedFont(
+    StandardFonts.Helvetica,
+  );
 
   for (const page of pdf.getPages()) {
     const { width, height } = page.getSize();
+
     page.drawText(`Licensed to ${email}`, {
-      x: width * 0.15, // Start partway across so the stamp runs diagonally through the page
+      x: width * 0.15,
       y: height * 0.5,
       size: 24,
       font,
       color: rgb(0.6, 0.6, 0.6),
-      opacity: 0.35, // Faint enough to read the content, visible enough to deter
+      opacity: 0.35,
       rotate: degrees(35),
     });
   }
 
-  const file = outputFile(outDir, email, templateFile);
-  await mkdir(dirname(file), { recursive: true }); // Create this recipient's folder
-  await writeFile(file, await pdf.save());
+  const file = outputFile(
+    outDir,
+    email,
+    templateFile,
+  );
+
+  await mkdir(dirname(file), {
+    recursive: true,
+  });
+
+  await writeFile(
+    file,
+    await pdf.save(),
+  );
 }
 
-// Checks each stamped PDF actually contains its recipient's stamp text
-async function verifyStamps(outDir: string, templateFiles: string[], emails: string[]) {
-  for (const email of emails) {
-    for (const templateFile of templateFiles) {
-      const file = outputFile(outDir, email, templateFile);
-      const { text } = await pdfParse(await readFile(file));
-      const stamp = `Licensed to ${email}`;
-      const ok = text.includes(stamp);
+// Persist a run manifest so each batch has a record of the template and recipient list used.
+async function saveManifest(
+  manifest: Manifest,
+) {
+  const manifestDir = join(
+    outDir,
+    "manifests",
+  );
+
+  await mkdir(manifestDir, {
+    recursive: true,
+  });
+
+  const manifestPath = join(
+    manifestDir,
+    `${manifest.runId}.json`,
+  );
+
+  await writeFile(
+    manifestPath,
+    JSON.stringify(manifest, null, 2),
+    "utf8",
+  );
+
+  console.log(
+    `Manifest saved: ${manifestPath}`,
+  );
+
+  return manifestPath;
+}
+
+// Check that each stamped PDF actually contains the expected email text.
+async function verifyManifest(
+  manifest: Manifest,
+) {
+  console.log("\nVerifying output...\n");
+
+  for (const email of manifest.recipients) {
+    for (const templateFile of manifest.templates) {
+      const file = outputFile(
+        outDir,
+        email,
+        templateFile,
+      );
+
+      const { text } = await pdfParse(
+        await readFile(file),
+      );
+
+      const expected =
+        `Licensed to ${email}`;
+
+      const ok =
+        text.includes(expected);
+
       console.log(
         ok
-          ? `FOUND: ${email} in ${basename(templateFile)}`
-          : `MISSING: ${email} in ${basename(templateFile)}`,
+          ? `FOUND: ${email} in ${templateFile}`
+          : `MISSING: ${email} in ${templateFile}`,
       );
     }
   }
 }
 
+// Main orchestration: normalize recipients, generate output, save metadata, and verify the results.
 async function main() {
-  const recipients = ["alice@example.com", "bob@example.com"]; // Replace with your buyer list
+  const recipients = [
+    "alice@example.com",
+    "bob@example.com",
+  ];
 
-  // Trim, lowercase and dedupe so the same buyer isn't stamped twice
-  const cleaned = [...new Set(recipients.map((e) => e.trim().toLowerCase()))];
+  const cleaned = [
+    ...new Set(
+      recipients.map((e) =>
+        e.trim().toLowerCase(),
+      ),
+    ),
+  ];
 
-  const invalid = cleaned.filter((e) => !isValidEmail(e));
+  const invalid = cleaned.filter(
+    (e) => !isValidEmail(e),
+  );
+
   if (invalid.length > 0) {
-    console.error("Skipping invalid addresses:", invalid);
+    console.error(
+      "Invalid email addresses:",
+      invalid,
+    );
   }
-  const valid = cleaned.filter(isValidEmail);
 
-  await mkdir(outDir, { recursive: true });
+  const valid =
+    cleaned.filter(isValidEmail);
 
-  // Stamp every template for every recipient, one at a time so failures are easy to spot
+  await mkdir(outDir, {
+    recursive: true,
+  });
+
+  const runId = createRunId();
+
+  const manifest: Manifest = {
+    runId,
+    createdAt:
+      new Date().toISOString(),
+    templates: templateFiles,
+    recipients: valid,
+  };
+
   for (const email of valid) {
     for (const templateFile of templateFiles) {
-      await stampCopy(join(here, templateFile), templateFile, email, outDir);
-      console.log(`Stamped ${templateFile} for ${email}`);
+      await stampCopy(
+        join(here, templateFile),
+        templateFile,
+        email,
+      );
+
+      console.log(
+        `Stamped ${templateFile} for ${email}`,
+      );
     }
   }
 
-  // Only check files after every stamp is written
-  await verifyStamps(outDir, templateFiles, valid);
+  await saveManifest(manifest);
+
+  await verifyManifest(manifest);
 }
 
 main().catch(console.error);

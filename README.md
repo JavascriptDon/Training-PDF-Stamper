@@ -1,39 +1,87 @@
 # Training PDF Stamper
 
-Creates a personalised copy of each configured PDF template for every recipient, stamping their email address diagonally across every page. Each recipient gets a folder containing a copy of every template, and the script checks that every stamp was written correctly.
+This project creates a personalised copy of each configured PDF template for every recipient. It stamps each recipient's email diagonally across every page, writes one output folder per recipient, and verifies that the expected text was actually embedded in each generated PDF.
+
+## What it does
+
+- Reads template PDFs from the same folder as `stamp.tsx`
+- Generates a stamped copy for each recipient
+- Saves output under `stamped/<recipient-email>/`
+- Validates email addresses before stamping
+- Writes a JSON run manifest to `stamped/manifests/`
+- Verifies the stamped PDFs by extracting text and checking for the expected email string
 
 ## Requirements
 
 - Node.js 18 or later
-- Every configured template PDF in the same folder as `stamp.tsx`
+- PDF templates saved beside `stamp.tsx`
 
-## Setup
+## Install
 
 ```bash
-npm install pdf-lib pdf-parse@1.1.1
-npm install -D @types/pdf-parse tsx typescript
+npm install
 ```
 
-`pdf-parse` is pinned to 1.1.1 because later versions break simple imports.
+This project depends on:
 
-## Usage
+- `pdf-lib` for editing the PDF files
+- `pdf-parse` for verification checks
 
-1. Put all the template PDFs beside `stamp.tsx`.
-2. In `stamp.tsx`, add each template's filename to the `templateFiles` array. The existing guide is already listed.
-3. Replace the addresses in the `recipients` array inside `main()` with your buyer list. Each address is stamped onto every listed template.
-4. Run the script:
+## Configure the templates and recipients
+
+1. Place each source PDF next to `stamp.tsx`.
+2. Update `templateFiles` in `stamp.tsx` to include the files you want to stamp.
+3. Update the `recipients` array inside `main()` with the target email addresses.
+
+Example:
+
+```ts
+const templateFiles = [
+  "BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf",
+];
+
+const recipients = [
+  "alice@example.com",
+  "bob@example.com",
+];
+```
+
+## Run it
 
 ```bash
 npx tsx stamp.tsx
 ```
 
-3. Check the output. Each address should show `OK`. Any `MISSING` means that file's stamp didn't extract as text, so open the PDF and check it visually.
+The script will:
 
-## Output
+- create folders under `stamped/`
+- write stamped PDF files for each template
+- save a run manifest under `stamped/manifests/`
+- print `FOUND` or `MISSING` messages while verifying the output
 
-Files are written to `stamped/`, one folder per recipient, with one stamped PDF for each template:
+## Output structure
+
+```text
+stamped/
+├── alice@example.com/
+│   └── BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf
+├── bob@example.com/
+│   └── BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf
+└── manifests/
+    └── 20261107-220442.json
+```
+
+A `FOUND` result means the stamped PDF contains the expected text. A `MISSING` result means the file did not extract as expected, and you should inspect the PDF manually.
+
+## Notes
+
+- `pdf-parse` is pinned to `1.1.1` because newer versions can break the simple import used by this script.
+- Folder names are sanitized to avoid invalid filesystem characters while keeping the recipient email readable.
+
+## Example result
 
 <img width="944" height="503" alt="image" src="https://github.com/user-attachments/assets/2a50710b-98f8-4542-b57e-621e99926abb" />
 
+Video demo:
 
 https://github.com/user-attachments/assets/6c8e45d2-5073-49d6-b791-01d61e492642

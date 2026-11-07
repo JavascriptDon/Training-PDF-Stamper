@@ -30,3 +30,5 @@ npx tsx stamp.tsx
 ## Output
 
 Files are written to `stamped/`, one folder per recipient:
+
+<img width="944" height="503" alt="image" src="https://github.com/user-attachments/assets/2a50710b-98f8-4542-b57e-621e99926abb" />

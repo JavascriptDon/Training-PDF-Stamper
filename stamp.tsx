@@ -54,8 +54,9 @@ async function verifyStamps(outDir: string, emails: string[]) {
   for (const email of emails) {
     const file = outputFile(outDir, email);
     const { text } = await pdfParse(await readFile(file));
-    const ok = text.includes(`Licensed to ${email}`);
-    console.log(`${ok ? "OK     " : "MISSING"} ${email}`);
+    const stamp = `Licensed to ${email}`;
+    const ok = text.includes(stamp);
+    console.log(ok ? `FOUND: ${email}` : `MISSING: ${email}`);
   }
 }
 

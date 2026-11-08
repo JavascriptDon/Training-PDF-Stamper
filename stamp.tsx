@@ -100,7 +100,7 @@ async function stampOne(
       size: 24,
       font,
       color: rgb(0.6, 0.6, 0.6),
-      opacity: 0,
+      opacity: 0.35,
       rotate: degrees(35),
     });
   }

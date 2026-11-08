@@ -1,14 +1,14 @@
 # Training PDF Stamper
 
-This project creates a personalised copy of each configured PDF template for every recipient. It stamps each recipient's email diagonally across every page, writes one output folder per recipient, and verifies that the expected text was actually embedded in each generated PDF.
+This project creates a personalised copy of each configured PDF template for every buyer. It stamps each buyer's name diagonally across every page, writes one output folder per buyer, and verifies that the expected text was actually embedded in each generated PDF.
 
 It is intended for small batch mailouts where the same PDF template needs to be customized for many recipients.
 
 ## Features
 
 - Reads PDF templates from the same directory as `stamp.tsx`
-- Validates recipient email addresses before stamping
-- Creates one folder per recipient under `stamped/`
+- Accepts buyer names for stamping (no email addresses are required)
+- Creates one folder per buyer under `stamped/`
 - Saves each personalized PDF next to the template output for that user
 - Writes a JSON manifest to `stamped/manifests/`
 - Verifies generated PDFs by reading extracted text and checking for the expected sender/recipient stamp
@@ -57,15 +57,15 @@ Choose the option you want.
 
 ## How stamping works
 
-In the stamping flow, the script asks for recipient emails. You can paste several addresses at once, separated by commas, spaces, or new lines.
+In the stamping flow, the script asks for buyer names. You can enter several names separated by commas, semicolons, or new lines. Keep spaces within each name.
 
 Example:
 
 ```text
-Recipient emails (separate with commas or spaces): alice@example.com, bob@example.com
+Buyer names (separate with commas or new lines): Alice Smith, Bob Jones
 ```
 
-Invalid email entries are ignored, and valid addresses are stamped one by one.
+Each name is stamped on its own PDF. The name is not converted into an email link.
 
 ## Template configuration
 
@@ -85,9 +85,9 @@ Example output layout:
 
 ```text
 stamped/
-├── alice@example.com/
+├── Alice Smith/
 │   └── BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf
-├── bob@example.com/
+├── Bob Jones/
 │   └── BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf
 └── manifests/
     └── 20261107-220442.json
@@ -99,7 +99,7 @@ The manifest contains a run ID, timestamp, template name, and the list of succes
 
 After a PDF is created, the script extracts text from it and checks whether the expected string is present.
 
-- `FOUND` means the email stamp was detected
+- `FOUND` means the buyer-name stamp was detected
 - `MISSING` means the stamp was not found and the file should be checked manually
 
 The verify flow can also scan all PDFs under `stamped/` and report pass/fail for each file.
@@ -115,7 +115,7 @@ The verify flow can also scan all PDFs under `stamped/` and report pass/fail for
 ## Notes
 
 - `pdf-parse` is pinned to `1.1.1` because newer versions can break the import pattern used by this script.
-- Folder names are sanitized to avoid invalid filesystem characters while keeping the email readable.
+- Folder names are sanitized to avoid invalid filesystem characters while keeping the buyer name readable.
 - This project is designed for local batch stamping, not for a full production document-generation system.
 
 ## Example result
@@ -125,5 +125,4 @@ The verify flow can also scan all PDFs under `stamped/` and report pass/fail for
 Video demo:
 
 https://github.com/user-attachments/assets/3a2df96c-630c-4cbb-acbd-cc730774dab2
-
 

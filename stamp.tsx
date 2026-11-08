@@ -14,9 +14,6 @@ const templateFiles = [
 const templatePath = join(here, templateFiles[0]);
 const outDir = join(here, "stamped");
 
-// Basic email check: catches obvious typos without confirming the mailbox exists.
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 type Manifest = {
   runId: string;
   createdAt: string;
@@ -32,24 +29,17 @@ type Result = {
 
 /* ---------- helpers ---------- */
 
-function isValidEmail(email: string): boolean {
-  return EMAIL_PATTERN.test(email);
-}
-
-// Split pasted input on commas, spaces or new lines, then clean up and sort into valid and invalid.
-function parseEmails(input: string): { valid: string[]; invalid: string[] } {
-  const cleaned = [
-    ...new Set(
-      input
-        .split(/[\s,;]+/)
-        .map((e) => e.trim().toLowerCase())
-        .filter(Boolean),
-    ),
+// Split pasted names on commas, semicolons or new lines, preserving spaces within each name.
+function parseBuyerNames(input: string): string[] {
+  const names = input
+    .split(/[,;\r\n]+/)
+    .map((name) => name.trim())
+    .filter(Boolean);
+  return [
+    ...new Map(
+      names.map((name) => [name.toLowerCase(), name] as const),
+    ).values(),
   ];
-  return {
-    valid: cleaned.filter(isValidEmail),
-    invalid: cleaned.filter((e) => !isValidEmail(e)),
-  };
 }
 
 // Timestamp-based run ID, e.g. 20261107-224700. Sorts well and is easy to read.
@@ -62,10 +52,11 @@ function createRunId(): string {
   );
 }
 
-// One folder per recipient, e.g. stamped/alice@example.com/. The PDF keeps the template's filename.
-function outputPath(email: string): string {
-  // Swap out characters that aren't safe in folder names.
-  const safeFolder = email.replace(/[^a-z0-9@.-]/gi, "_");
+// One folder per buyer. The PDF keeps the template's filename.
+function outputPath(buyerName: string): string {
+  const safeFolder = buyerName
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+    .replace(/[. ]+$/g, "");
   return join(outDir, safeFolder, basename(templateFiles[0]));
 }
 
@@ -74,13 +65,7 @@ function squash(s: string): string {
   return s.replace(/\s+/g, "").toLowerCase();
 }
 
-// Find every "Licensed to <email>" in the squashed text. Used to report which stamps are present.
-function emailsInStamps(squashedText: string): string[] {
-  const pattern = /licensedto([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/g;
-  return [...new Set([...squashedText.matchAll(pattern)].map((m) => m[1]))];
-}
-
-// Collect PDFs from a file or folder. Folders are searched recursively, so recipient subfolders are included.
+// Collect PDFs from a file or folder. Folders are searched recursively, so buyer subfolders are included.
 async function findPdfs(target: string): Promise<string[]> {
   const info = await stat(target);
   if (info.isFile()) return [target];
@@ -99,25 +84,28 @@ async function findPdfs(target: string): Promise<string[]> {
 
 /* ---------- stamping ---------- */
 
-// Load the template once, then stamp a fresh copy for each recipient.
-async function stampOne(templateBytes: Uint8Array, email: string): Promise<void> {
+// Load the template once, then stamp a fresh copy for each buyer.
+async function stampOne(
+  templateBytes: Uint8Array,
+  buyerName: string,
+): Promise<void> {
   const pdf = await PDFDocument.load(templateBytes);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
 
   for (const page of pdf.getPages()) {
     const { width, height } = page.getSize();
-    page.drawText(`Licensed to ${email}`, {
+    page.drawText(`Licensed to ${buyerName}`, {
       x: width * 0.15,
       y: height * 0.5,
       size: 24,
       font,
       color: rgb(0.6, 0.6, 0.6),
-      opacity: 0.35,
+      opacity: 0,
       rotate: degrees(35),
     });
   }
 
-  const file = outputPath(email);
+  const file = outputPath(buyerName);
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, await pdf.save());
 }
@@ -132,8 +120,8 @@ async function saveManifest(manifest: Manifest): Promise<string> {
 
 /* ---------- verifying ---------- */
 
-// Check one PDF. With an email, look for that exact stamp. Without one, report whichever stamps are there.
-async function checkPdf(file: string, wantedEmail?: string): Promise<Result> {
+// Check one PDF. With a name, look for that exact stamp.
+async function checkPdf(file: string, wantedName?: string): Promise<Result> {
   let text: string;
   try {
     ({ text } = await pdfParse(await readFile(file)));
@@ -143,21 +131,18 @@ async function checkPdf(file: string, wantedEmail?: string): Promise<Result> {
 
   const squashed = squash(text);
 
-  if (wantedEmail) {
-    const wanted = wantedEmail.toLowerCase();
+  if (wantedName) {
+    const wanted = squash(wantedName);
     if (squashed.includes(`licensedto${wanted}`)) {
-      return { file, ok: true, message: `Stamp for ${wanted} found` };
+      return { file, ok: true, message: `Stamp for ${wantedName} found` };
     }
-    const others = emailsInStamps(squashed);
-    const hint = others.length ? ` (found stamp for: ${others.join(", ")})` : "";
-    return { file, ok: false, message: `No stamp for ${wanted}${hint}` };
+    return { file, ok: false, message: `No stamp for ${wantedName}` };
   }
 
-  const emails = emailsInStamps(squashed);
-  if (emails.length === 0) {
+  if (!squashed.includes("licensedto")) {
     return { file, ok: false, message: "No stamp found" };
   }
-  return { file, ok: true, message: `Stamped for ${emails.join(", ")}` };
+  return { file, ok: true, message: "Stamp found" };
 }
 
 function printResult(result: Result, base?: string) {
@@ -174,51 +159,46 @@ function printResult(result: Result, base?: string) {
 
 async function stampFlow(rl: Interface) {
   const input = await rl.question(
-    "Recipient emails (separate with commas or spaces): ",
+    "Buyer names (separate with commas or new lines): ",
   );
-  const { valid, invalid } = parseEmails(input);
-
-  if (invalid.length > 0) {
-    console.log(`Skipping invalid addresses: ${invalid.join(", ")}`);
-  }
-  if (valid.length === 0) {
-    console.log("No valid emails entered. Nothing to do.\n");
+  const buyerNames = parseBuyerNames(input);
+  if (buyerNames.length === 0) {
+    console.log("No buyer names entered. Nothing to do.\n");
     return;
   }
 
   await mkdir(outDir, { recursive: true });
   const templateBytes = await readFile(templatePath);
 
-  for (const email of valid) {
-    await stampOne(templateBytes, email);
-    console.log(`Stamped for ${email}`);
+  for (const buyerName of buyerNames) {
+    await stampOne(templateBytes, buyerName);
+    console.log(`Stamped for ${buyerName}`);
   }
 
   const manifestPath = await saveManifest({
     runId: createRunId(),
     createdAt: new Date().toISOString(),
     template: templateFiles[0],
-    recipients: valid,
+    recipients: buyerNames,
   });
   console.log(`\nManifest saved: ${manifestPath}`);
 
-  // Check each new file for its own recipient's stamp straight after writing it.
+  // Check each new file for its own buyer's stamp straight after writing it.
   console.log("\nVerifying new files...\n");
-  for (const email of valid) {
-    printResult(await checkPdf(outputPath(email), email), outDir);
+  for (const buyerName of buyerNames) {
+    printResult(await checkPdf(outputPath(buyerName), buyerName), outDir);
   }
   console.log();
 }
 
 async function verifyFlow(rl: Interface) {
-  // Always check the stamped folder. Recipient subfolders are included by findPdfs.
+  // Always check the stamped folder. Buyer subfolders are included by findPdfs.
   const target = outDir;
 
-  const emailInput = (
-    await rl.question("Check for one email only? (Enter to check any): ")
+  const nameInput = (
+    await rl.question("Check for one buyer name only? (Enter to check any): ")
   )
-    .trim()
-    .toLowerCase();
+    .trim();
 
   let files: string[];
   try {
@@ -235,7 +215,7 @@ async function verifyFlow(rl: Interface) {
   console.log(`\nChecking ${files.length} PDF(s)...\n`);
   let failed = 0;
   for (const file of files) {
-    const result = await checkPdf(file, emailInput || undefined);
+    const result = await checkPdf(file, nameInput || undefined);
     if (!result.ok) failed++;
     printResult(result, target);
   }
@@ -250,7 +230,7 @@ async function main() {
 
   try {
     while (true) {
-      console.log("1) Stamp PDFs for recipients");
+      console.log("1) Stamp PDFs for buyers");
       console.log("2) Verify stamps");
       console.log("3) Quit");
 

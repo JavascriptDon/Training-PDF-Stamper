@@ -192,8 +192,10 @@ async function stampFlow(rl: Interface) {
 }
 
 async function verifyFlow(rl: Interface) {
-  // Always check the stamped folder. Buyer subfolders are included by findPdfs.
-  const target = outDir;
+  const targetInput = (
+    await rl.question("PDF file or folder to check (Enter to scan stamped): ")
+  ).trim();
+  const target = targetInput || outDir;
 
   const nameInput = (
     await rl.question("Check for one buyer name only? (Enter to check any): ")
@@ -208,7 +210,7 @@ async function verifyFlow(rl: Interface) {
     return;
   }
   if (files.length === 0) {
-    console.log("No PDFs found there.\n");
+    console.log(`No PDFs found at: ${target}\n`);
     return;
   }
 
@@ -217,7 +219,7 @@ async function verifyFlow(rl: Interface) {
   for (const file of files) {
     const result = await checkPdf(file, nameInput || undefined);
     if (!result.ok) failed++;
-    printResult(result, target);
+    printResult(result, file === target ? undefined : target);
   }
   console.log(`\n${files.length - failed} passed, ${failed} failed.\n`);
 }

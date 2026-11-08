@@ -102,7 +102,8 @@ After a PDF is created, the script extracts text from it and checks whether the 
 - `FOUND` means the buyer-name stamp was detected
 - `MISSING` means the stamp was not found and the file should be checked manually
 
-The verify flow can also scan all PDFs under `stamped/` and report pass/fail for each file.
+The verify flow can also scan all PDFs under `stamped/` and report pass/fail for each file. 
+When verifying, enter a PDF file path to check a leaked file directly, or enter a folder path to scan PDFs in that folder and its subfolders. Press Enter at the path prompt to keep scanning `stamped/`.
 
 ## Project files
 

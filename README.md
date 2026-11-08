@@ -124,4 +124,6 @@ The verify flow can also scan all PDFs under `stamped/` and report pass/fail for
 
 Video demo:
 
-https://github.com/user-attachments/assets/6c8e45d2-5073-49d6-b791-01d61e492642
+https://github.com/user-attachments/assets/3a2df96c-630c-4cbb-acbd-cc730774dab2
+
+

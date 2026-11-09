@@ -1,18 +1,27 @@
 # Training PDF Stamper
 
-Training PDF Stamper creates a separate copy of the configured PDF for each buyer. It adds a diagonal **CONFIDENTIAL** watermark to every page and records the buyer's name in the PDF's **Subject metadata**. The personalized copy is written under `stamped/`.
+Training PDF Stamper creates personalized copies of a PDF for each buyer. It can add a visible diagonal `CONFIDENTIAL` watermark to every page and stores the buyer's name in the PDF `Subject` metadata as `Licensed to <buyer name>`. Generated files are saved under `stamped/`.
 
-> **Important:** The visible watermark says only “CONFIDENTIAL”; the buyer's name is stored separately in document metadata. Metadata can be viewed, edited, or removed by other PDF tools, and the watermark is not a copy-protection mechanism.
+> Important: the visible watermark is only a visual marker. The buyer name is stored in document metadata, and that metadata can be viewed, edited, or removed by other PDF tools. This tool is not a DRM or copy-protection system.
+
+## Features
+
+- Creates one PDF per buyer from a configured template
+- Adds a light, semi-transparent diagonal `CONFIDENTIAL` watermark when requested
+- Writes the buyer identity into PDF metadata for verification
+- Supports verifying a single PDF, a folder, or the generated `stamped/` output
+- Sanitizes buyer names into safe folder names for output files
+- Saves a JSON manifest for each run containing the run ID, timestamp, template name, and buyers
 
 ## Requirements
 
 - Node.js 18 or later
 - npm
-- The configured PDF template in the project folder
+- A PDF template in the project folder
 
-## Setup and run
+## Quick start
 
-Install the project dependencies from the repository root:
+From the repository root, install dependencies:
 
 ```bash
 npm install
@@ -24,13 +33,15 @@ Run the interactive tool:
 npx tsx stamp.tsx
 ```
 
-On Windows, you can instead run:
+On Windows, you can also run:
 
 ```bat
 stamp.bat
 ```
 
-The script uses `tsx` through `npx`; `tsx` is not listed as a project dependency, so `npx` may download it if it is not already available.
+The script uses `tsx` via `npx`, so it may download `tsx` automatically if it is not already installed.
+
+## Main menu
 
 The menu offers:
 
@@ -40,17 +51,23 @@ The menu offers:
 
 ## Stamping PDFs
 
-Choose **Stamp PDFs for buyers**, then enter buyer names separated by commas, semicolons, or new lines. Spaces within names are preserved. Duplicate names are removed case-insensitively.
+Choose `1` to stamp PDFs for buyers. Enter buyer names separated by commas, semicolons, or new lines. Duplicate names are removed case-insensitively, and spaces inside names are preserved.
 
-For example:
+Example input:
 
 ```text
 Alice Smith, Bob Jones
 ```
 
-For each buyer, the script writes a light-gray, semi-transparent “CONFIDENTIAL” watermark diagonally across every page. It also sets the PDF Subject to `Licensed to <buyer name>`. The script creates a buyer folder under `stamped/` and saves a copy of the configured template there. If a buyer's output file already exists, it is overwritten.
+The tool then:
 
-The template is currently configured in `stamp.tsx`:
+- loads the configured template file
+- writes a copy to `stamped/<buyer name>/`
+- optionally adds a diagonal visible `CONFIDENTIAL` watermark
+- sets the PDF `Subject` metadata to `Licensed to <buyer name>`
+- saves a manifest in `stamped/manifests/`
+
+The template is configured in `stamp.tsx`:
 
 ```ts
 const templateFiles = [
@@ -58,11 +75,11 @@ const templateFiles = [
 ];
 ```
 
-The template path is resolved relative to the script, so run the tool from any working directory.
+The script resolves that template path relative to itself, so it works from any working directory.
 
-## Output
+## Output structure
 
-The output structure is similar to:
+Example output:
 
 ```text
 stamped/
@@ -70,25 +87,35 @@ stamped/
 │   └── BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf
 ├── Bob Jones/
 │   └── BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf
-└── manifests/
-    └── 20261109-184015.json
+├── manifests/
+│   └── 20261109-184015.json
+└── ...
 ```
-
-Each run writes a JSON manifest with the run ID, timestamp, template filename, and buyer names. Folder names are sanitized for invalid filesystem characters.
 
 https://github.com/user-attachments/assets/090bd9c3-7a4b-49b2-adce-ea1132472b47
 
 
-## Verify stamps
+## Verification
 
-Choose **Verify stamps** to check a PDF file or recursively scan a folder. Press Enter at the path prompt to scan `stamped/`. You can optionally provide a buyer name to require that exact name; name comparisons are case-insensitive. Verification reads the PDF Subject metadata and reports whether a `Licensed to ` stamp was found.
+Choose `2` to verify stamps. You can:
 
-The stamping flow also verifies each newly written file against its buyer name. Verification checks the buyer-identifying Subject metadata only; it does not check whether the visible page watermark is present.
+- check a single PDF file
+- check a folder recursively
+- leave the path blank to scan the full `stamped/` directory
+- optionally require a buyer name to match exactly (case-insensitive)
+
+Verification reads the PDF metadata and looks for a `Subject` starting with `Licensed to `. It does not validate whether the visible watermark is present.
 
 ## Project files
 
-- `stamp.tsx` — stamping, verification, and interactive menu
+- `stamp.tsx` — main stamping and verification logic
 - `stamp.bat` — Windows launcher
 - `package.json` — project dependencies
-- `BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf` — configured PDF template
-- `stamped/` — generated PDFs and run manifests
+- `BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf` — default PDF template
+- `stamped/` — generated stamped PDFs and manifests
+
+## Notes
+
+- File names are sanitized for invalid filesystem characters when creating buyer folders.
+- If a PDF already exists for a buyer, it is overwritten during stamping.
+- This project is intended for controlled internal distribution and simple traceability, not for strong document protection.

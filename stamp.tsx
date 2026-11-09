@@ -21,6 +21,7 @@ type Manifest = {
   createdAt: string;
   template: string;
   recipients: string[];
+  watermark: boolean;
 };
 
 type Result = {
@@ -81,29 +82,32 @@ async function findPdfs(target: string): Promise<string[]> {
 
 /* ---------- stamping ---------- */
 
-// Load the template once, then write a fresh copy with a CONFIDENTIAL watermark and the buyer's name in the Subject field.
+// Load the template once, then write a fresh copy. The watermark is optional; the Subject field is always set.
 async function stampOne(
   templateBytes: Uint8Array,
   buyerName: string,
+  withWatermark: boolean,
 ): Promise<void> {
   const pdf = await PDFDocument.load(templateBytes);
-  const font = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  // Visible watermark on every page. Kept light so the content stays readable.
-  for (const page of pdf.getPages()) {
-    const { width, height } = page.getSize();
-    page.drawText("CONFIDENTIAL", {
-      x: width * 0.2,
-      y: height * 0.45,
-      size: 58,
-      font,
-      color: rgb(0.6, 0.6, 0.6),
-      opacity: 0.25,
-      rotate: degrees(35),
-    });
+  // Optional visible watermark on every page. Kept light so the content stays readable.
+  if (withWatermark) {
+    const font = await pdf.embedFont(StandardFonts.HelveticaBold);
+    for (const page of pdf.getPages()) {
+      const { width, height } = page.getSize();
+      page.drawText("CONFIDENTIAL", {
+        x: width * 0.2,
+        y: height * 0.45,
+        size: 58,
+        font,
+        color: rgb(0.6, 0.6, 0.6),
+        opacity: 0.25,
+        rotate: degrees(35),
+      });
+    }
   }
 
-  // Hidden metadata that identifies the buyer.
+  // Hidden metadata that identifies the buyer. Always set, watermark or not.
   pdf.setSubject(`${STAMP_PREFIX}${buyerName}`);
 
   const file = outputPath(buyerName);
@@ -175,12 +179,22 @@ async function stampFlow(rl: Interface) {
     return;
   }
 
+  // Ask once for the whole run. Anything other than y/yes means metadata only.
+  const watermarkAnswer = (
+    await rl.question("Add visible CONFIDENTIAL watermark too? (y/N): ")
+  )
+    .trim()
+    .toLowerCase();
+  const withWatermark = watermarkAnswer === "y" || watermarkAnswer === "yes";
+
   await mkdir(outDir, { recursive: true });
   const templateBytes = await readFile(templatePath);
 
   for (const buyerName of buyerNames) {
-    await stampOne(templateBytes, buyerName);
-    console.log(`Stamped for ${buyerName}`);
+    await stampOne(templateBytes, buyerName, withWatermark);
+    console.log(
+      `Stamped for ${buyerName}${withWatermark ? " (watermarked)" : ""}`,
+    );
   }
 
   const manifestPath = await saveManifest({
@@ -188,6 +202,7 @@ async function stampFlow(rl: Interface) {
     createdAt: new Date().toISOString(),
     template: templateFiles[0],
     recipients: buyerNames,
+    watermark: withWatermark,
   });
   console.log(`\nManifest saved: ${manifestPath}`);
 

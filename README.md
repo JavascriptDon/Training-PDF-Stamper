@@ -1,38 +1,94 @@
 # Training PDF Stamper
 
-Creates a personalised copy of the training PDF for each recipient, stamping their email address diagonally across every page. Each copy goes in its own folder, and the script checks that every stamp was written correctly.
+Training PDF Stamper creates a separate copy of the configured PDF for each buyer. It adds a diagonal **CONFIDENTIAL** watermark to every page and records the buyer's name in the PDF's **Subject metadata**. The personalized copy is written under `stamped/`.
+
+> **Important:** The visible watermark says only “CONFIDENTIAL”; the buyer's name is stored separately in document metadata. Metadata can be viewed, edited, or removed by other PDF tools, and the watermark is not a copy-protection mechanism.
 
 ## Requirements
 
 - Node.js 18 or later
-- The template PDF, `BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf`, in the same folder as `stamp.tsx`
+- npm
+- The configured PDF template in the project folder
 
-## Setup
+## Setup and run
+
+Install the project dependencies from the repository root:
 
 ```bash
-npm install pdf-lib pdf-parse@1.1.1
-npm install -D @types/pdf-parse tsx typescript
+npm install
 ```
 
-`pdf-parse` is pinned to 1.1.1 because later versions break simple imports.
-
-## Usage
-
-1. Open `stamp.tsx` and replace the addresses in the `recipients` array inside `main()` with your buyer list.
-2. Run the script:
+Run the interactive tool:
 
 ```bash
 npx tsx stamp.tsx
 ```
 
-3. Check the output. Each address should show `OK`. Any `MISSING` means that file's stamp didn't extract as text, so open the PDF and check it visually.
+On Windows, you can instead run:
+
+```bat
+stamp.bat
+```
+
+The script uses `tsx` through `npx`; `tsx` is not listed as a project dependency, so `npx` may download it if it is not already available.
+
+The menu offers:
+
+1. Stamp PDFs for buyers
+2. Verify stamps
+3. Quit
+
+## Stamping PDFs
+
+Choose **Stamp PDFs for buyers**, then enter buyer names separated by commas, semicolons, or new lines. Spaces within names are preserved. Duplicate names are removed case-insensitively.
+
+For example:
+
+```text
+Alice Smith, Bob Jones
+```
+
+For each buyer, the script writes a light-gray, semi-transparent “CONFIDENTIAL” watermark diagonally across every page. It also sets the PDF Subject to `Licensed to <buyer name>`. The script creates a buyer folder under `stamped/` and saves a copy of the configured template there. If a buyer's output file already exists, it is overwritten.
+
+The template is currently configured in `stamp.tsx`:
+
+```ts
+const templateFiles = [
+  "BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf",
+];
+```
+
+The template path is resolved relative to the script, so run the tool from any working directory.
 
 ## Output
 
-Files are written to `stamped/`, one folder per recipient:
+The output structure is similar to:
 
-<img width="944" height="503" alt="image" src="https://github.com/user-attachments/assets/2a50710b-98f8-4542-b57e-621e99926abb" />
+```text
+stamped/
+├── Alice Smith/
+│   └── BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf
+├── Bob Jones/
+│   └── BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf
+└── manifests/
+    └── 20261109-184015.json
+```
+
+Each run writes a JSON manifest with the run ID, timestamp, template filename, and buyer names. Folder names are sanitized for invalid filesystem characters.
+
+https://github.com/user-attachments/assets/090bd9c3-7a4b-49b2-adce-ea1132472b47
 
 
-https://github.com/user-attachments/assets/6c8e45d2-5073-49d6-b791-01d61e492642
+## Verify stamps
 
+Choose **Verify stamps** to check a PDF file or recursively scan a folder. Press Enter at the path prompt to scan `stamped/`. You can optionally provide a buyer name to require that exact name; name comparisons are case-insensitive. Verification reads the PDF Subject metadata and reports whether a `Licensed to ` stamp was found.
+
+The stamping flow also verifies each newly written file against its buyer name. Verification checks the buyer-identifying Subject metadata only; it does not check whether the visible page watermark is present.
+
+## Project files
+
+- `stamp.tsx` — stamping, verification, and interactive menu
+- `stamp.bat` — Windows launcher
+- `package.json` — project dependencies
+- `BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf` — configured PDF template
+- `stamped/` — generated PDFs and run manifests

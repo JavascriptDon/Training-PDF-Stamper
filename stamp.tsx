@@ -4,7 +4,6 @@ import { basename, dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface, type Interface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import pdfParse from "pdf-parse";
 
 // Resolve paths relative to this script so the tool works from any working directory.
 const here = dirname(fileURLToPath(import.meta.url));
@@ -13,6 +12,9 @@ const templateFiles = [
 ];
 const templatePath = join(here, templateFiles[0]);
 const outDir = join(here, "stamped");
+
+// The stamp lives in the Subject field, so every buyer's copy carries the same prefix.
+const STAMP_PREFIX = "Licensed to ";
 
 type Manifest = {
   runId: string;
@@ -60,11 +62,6 @@ function outputPath(buyerName: string): string {
   return join(outDir, safeFolder, basename(templateFiles[0]));
 }
 
-// Remove all whitespace before comparing. Rotated text often comes out of pdf-parse with gaps in odd places.
-function squash(s: string): string {
-  return s.replace(/\s+/g, "").toLowerCase();
-}
-
 // Collect PDFs from a file or folder. Folders are searched recursively, so buyer subfolders are included.
 async function findPdfs(target: string): Promise<string[]> {
   const info = await stat(target);
@@ -84,26 +81,30 @@ async function findPdfs(target: string): Promise<string[]> {
 
 /* ---------- stamping ---------- */
 
-// Load the template once, then stamp a fresh copy for each buyer.
+// Load the template once, then write a fresh copy with a CONFIDENTIAL watermark and the buyer's name in the Subject field.
 async function stampOne(
   templateBytes: Uint8Array,
   buyerName: string,
 ): Promise<void> {
   const pdf = await PDFDocument.load(templateBytes);
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const font = await pdf.embedFont(StandardFonts.HelveticaBold);
 
+  // Visible watermark on every page. Kept light so the content stays readable.
   for (const page of pdf.getPages()) {
     const { width, height } = page.getSize();
-    page.drawText(`Licensed to ${buyerName}`, {
-      x: width * 0.15,
-      y: height * 0.5,
-      size: 24,
+    page.drawText("CONFIDENTIAL", {
+      x: width * 0.2,
+      y: height * 0.45,
+      size: 58,
       font,
       color: rgb(0.6, 0.6, 0.6),
-      opacity: 0.35,
+      opacity: 0.25,
       rotate: degrees(35),
     });
   }
+
+  // Hidden metadata that identifies the buyer.
+  pdf.setSubject(`${STAMP_PREFIX}${buyerName}`);
 
   const file = outputPath(buyerName);
   await mkdir(dirname(file), { recursive: true });
@@ -122,27 +123,34 @@ async function saveManifest(manifest: Manifest): Promise<string> {
 
 // Check one PDF. With a name, look for that exact stamp.
 async function checkPdf(file: string, wantedName?: string): Promise<Result> {
-  let text: string;
+  let subject: string | undefined;
   try {
-    ({ text } = await pdfParse(await readFile(file)));
+    // updateMetadata: false stops pdf-lib from touching the file's dates or producer on read.
+    const pdf = await PDFDocument.load(await readFile(file), {
+      ignoreEncryption: true,
+      updateMetadata: false,
+    });
+    subject = pdf.getSubject();
   } catch {
     return { file, ok: false, message: "Could not read this PDF" };
   }
 
-  const squashed = squash(text);
+  const stamp = subject?.startsWith(STAMP_PREFIX)
+    ? subject.slice(STAMP_PREFIX.length).trim()
+    : undefined;
 
   if (wantedName) {
-    const wanted = squash(wantedName);
-    if (squashed.includes(`licensedto${wanted}`)) {
+    // Compare case-insensitively so "jane smith" matches "Jane Smith".
+    if (stamp?.toLowerCase() === wantedName.trim().toLowerCase()) {
       return { file, ok: true, message: `Stamp for ${wantedName} found` };
     }
     return { file, ok: false, message: `No stamp for ${wantedName}` };
   }
 
-  if (!squashed.includes("licensedto")) {
+  if (!stamp) {
     return { file, ok: false, message: "No stamp found" };
   }
-  return { file, ok: true, message: "Stamp found" };
+  return { file, ok: true, message: `Stamp found: ${stamp}` };
 }
 
 function printResult(result: Result, base?: string) {
@@ -199,8 +207,7 @@ async function verifyFlow(rl: Interface) {
 
   const nameInput = (
     await rl.question("Check for one buyer name only? (Enter to check any): ")
-  )
-    .trim();
+  ).trim();
 
   let files: string[];
   try {

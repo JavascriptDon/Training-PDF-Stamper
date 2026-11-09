@@ -76,6 +76,9 @@ stamped/
 
 Each run writes a JSON manifest with the run ID, timestamp, template filename, and buyer names. Folder names are sanitized for invalid filesystem characters.
 
+https://github.com/user-attachments/assets/090bd9c3-7a4b-49b2-adce-ea1132472b47
+
+
 ## Verify stamps
 
 Choose **Verify stamps** to check a PDF file or recursively scan a folder. Press Enter at the path prompt to scan `stamped/`. You can optionally provide a buyer name to require that exact name; name comparisons are case-insensitive. Verification reads the PDF Subject metadata and reports whether a `Licensed to ` stamp was found.

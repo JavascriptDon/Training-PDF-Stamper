@@ -56,11 +56,12 @@ function createRunId(): string {
 }
 
 // One folder per buyer. The PDF keeps the template's filename.
-function outputPath(buyerName: string): string {
+function outputPath(buyerName: string, templateFile: string): string {
   const safeFolder = buyerName
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
     .replace(/[. ]+$/g, "");
-  return join(outDir, safeFolder, basename(templateFiles[0]));
+
+  return join(outDir, safeFolder, basename(templateFile));
 }
 
 // Collect PDFs from a file or folder. Folders are searched recursively, so buyer subfolders are included.
@@ -86,15 +87,18 @@ async function findPdfs(target: string): Promise<string[]> {
 async function stampOne(
   templateBytes: Uint8Array,
   buyerName: string,
+  templateFile: string,
   withWatermark: boolean,
 ): Promise<void> {
   const pdf = await PDFDocument.load(templateBytes);
 
-  // Optional visible watermark on every page. Kept light so the content stays readable.
+																						
   if (withWatermark) {
     const font = await pdf.embedFont(StandardFonts.HelveticaBold);
+
     for (const page of pdf.getPages()) {
       const { width, height } = page.getSize();
+
       page.drawText("CONFIDENTIAL", {
         x: width * 0.2,
         y: height * 0.45,
@@ -107,10 +111,11 @@ async function stampOne(
     }
   }
 
-  // Hidden metadata that identifies the buyer. Always set, watermark or not.
+																			 
   pdf.setSubject(`${STAMP_PREFIX}${buyerName}`);
 
-  const file = outputPath(buyerName);
+  const file = outputPath(buyerName, templateFile);
+
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, await pdf.save());
 }
@@ -188,19 +193,31 @@ async function stampFlow(rl: Interface) {
   const withWatermark = watermarkAnswer === "y" || watermarkAnswer === "yes";
 
   await mkdir(outDir, { recursive: true });
-  const templateBytes = await readFile(templatePath);
+  for (const templateFile of templateFiles) {
+	  const templatePath = join(here, templateFile);
 
-  for (const buyerName of buyerNames) {
-    await stampOne(templateBytes, buyerName, withWatermark);
-    console.log(
-      `Stamped for ${buyerName}${withWatermark ? " (watermarked)" : ""}`,
-    );
-  }
+	  console.log(`Processing template: ${templateFile}`);
 
+	  const templateBytes = await readFile(templatePath);
+
+	  for (const buyerName of buyerNames) {
+		await stampOne(
+		  templateBytes,
+		  buyerName,
+		  templateFile,
+		  withWatermark,
+		);
+
+		console.log(
+		  `Stamped ${templateFile} for ${buyerName}${
+			withWatermark ? " (watermarked)" : ""
+		  }`,
+		);
+	  }
   const manifestPath = await saveManifest({
     runId: createRunId(),
     createdAt: new Date().toISOString(),
-    template: templateFiles[0],
+    template: `${templateFiles.length} templates`,
     recipients: buyerNames,
     watermark: withWatermark,
   });
@@ -208,9 +225,17 @@ async function stampFlow(rl: Interface) {
 
   // Check each new file for its own buyer's stamp straight after writing it.
   console.log("\nVerifying new files...\n");
-  for (const buyerName of buyerNames) {
-    printResult(await checkPdf(outputPath(buyerName), buyerName), outDir);
-  }
+	for (const templateFile of templateFiles) {
+	  for (const buyerName of buyerNames) {
+		printResult(
+		  await checkPdf(
+			outputPath(buyerName, templateFile),
+			buyerName,
+		  ),
+		  outDir,
+		);
+	  }
+	}			
   console.log();
 }
 

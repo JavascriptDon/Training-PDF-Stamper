@@ -9,12 +9,25 @@ import { stdin, stdout } from "node:process";
 const here = dirname(fileURLToPath(import.meta.url));
 const templateFiles = [
   "BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf",
+															 
+														   
+													 
+											
+															  
+												   
+													 
+													 
+															 
+																	  
+												 
 ];
+
 const templatePath = join(here, templateFiles[0]);
 const outDir = join(here, "stamped");
 
-// The stamp lives in the Subject field, so every buyer's copy carries the same prefix.
-const STAMP_PREFIX = "Licensed to ";
+																					   
+																   
+									  
 
 type Manifest = {
   runId: string;
@@ -111,14 +124,18 @@ async function stampOne(
     }
   }
 
-																			 
-  pdf.setSubject(`${STAMP_PREFIX}${buyerName}`);
+  // Store the template filename in the Title property
+  pdf.setTitle(basename(templateFile, ".pdf"));
+
+  // Store only the buyer name in Subject
+  pdf.setSubject(buyerName);
 
   const file = outputPath(buyerName, templateFile);
 
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, await pdf.save());
 }
+
 
 async function saveManifest(manifest: Manifest): Promise<string> {
   const dir = join(outDir, "manifests");
@@ -144,9 +161,7 @@ async function checkPdf(file: string, wantedName?: string): Promise<Result> {
     return { file, ok: false, message: "Could not read this PDF" };
   }
 
-  const stamp = subject?.startsWith(STAMP_PREFIX)
-    ? subject.slice(STAMP_PREFIX.length).trim()
-    : undefined;
+  const stamp = subject?.trim();
 
   if (wantedName) {
     // Compare case-insensitively so "jane smith" matches "Jane Smith".
@@ -214,6 +229,8 @@ async function stampFlow(rl: Interface) {
 		  }`,
 		);
 	  }
+  }
+
   const manifestPath = await saveManifest({
     runId: createRunId(),
     createdAt: new Date().toISOString(),

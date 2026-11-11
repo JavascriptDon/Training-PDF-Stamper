@@ -8,18 +8,7 @@ import { stdin, stdout } from "node:process";
 // Resolve paths relative to this script so the tool works from any working directory.
 const here = dirname(fileURLToPath(import.meta.url));
 const templateFiles = [
-  "BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf",
-															 
-														   
-													 
-											
-															  
-												   
-													 
-													 
-															 
-																	  
-												 
+  "BasicGuide_For_EfficientAuthoring_in_Cortona3D_Rapid_Author.pdf",											 
 ];
 
 const templatePath = join(here, templateFiles[0]);
@@ -35,6 +24,7 @@ type Manifest = {
   template: string;
   recipients: string[];
   watermark: boolean;
+  mode: "single" | "shared";
 };
 
 type Result = {
@@ -58,6 +48,31 @@ function parseBuyerNames(input: string): string[] {
   ];
 }
 
+// Treat each non-empty line as one shared-PDF group; comma-separated names belong to the same group.
+function parseBuyerGroups(input: string): string[][] {
+  return input
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .split(",")
+        .map((name) => name.trim())
+        .filter(Boolean),
+    )
+    .filter((group) => group.length > 0);
+}
+
+// Parse buyer names from the PDF Subject metadata. The Subject is stored as a
+// semicolon-delimited list so the verifier can read the stamped recipient names.
+function parseSubjectBuyers(subject?: string): string[] {
+  if (!subject) return [];
+
+  return subject
+    .split(/[;,]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+
 // Timestamp-based run ID, e.g. 20261107-224700. Sorts well and is easy to read.
 function createRunId(): string {
   const now = new Date();
@@ -69,12 +84,23 @@ function createRunId(): string {
 }
 
 // One folder per buyer. The PDF keeps the template's filename.
-function outputPath(buyerName: string, templateFile: string): string {
-  const safeFolder = buyerName
+function outputPath(
+  buyers: string | string[],
+  templateFile: string,
+): string {
+  const folderName = Array.isArray(buyers)
+    ? buyers.join(" + ")
+    : buyers;
+
+  const safeFolder = folderName
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
     .replace(/[. ]+$/g, "");
 
-  return join(outDir, safeFolder, basename(templateFile));
+  return join(
+    outDir,
+    safeFolder,
+    basename(templateFile),
+  );
 }
 
 // Collect PDFs from a file or folder. Folders are searched recursively, so buyer subfolders are included.
@@ -99,13 +125,12 @@ async function findPdfs(target: string): Promise<string[]> {
 // Load the template once, then write a fresh copy. The watermark is optional; the Subject field is always set.
 async function stampOne(
   templateBytes: Uint8Array,
-  buyerName: string,
+  buyers: string[],
   templateFile: string,
   withWatermark: boolean,
 ): Promise<void> {
   const pdf = await PDFDocument.load(templateBytes);
 
-																						
   if (withWatermark) {
     const font = await pdf.embedFont(StandardFonts.HelveticaBold);
 
@@ -124,13 +149,14 @@ async function stampOne(
     }
   }
 
-  // Store the template filename in the Title property
+  // Store the template filename in the Title property.
   pdf.setTitle(basename(templateFile, ".pdf"));
 
-  // Store only the buyer name in Subject
-  pdf.setSubject(buyerName);
+  // Store the stamped buyer names in Subject so verification can read the
+  // recipient list back from the PDF metadata.
+  pdf.setSubject(buyers.join("; "));
 
-  const file = outputPath(buyerName, templateFile);
+  const file = outputPath(buyers, templateFile);
 
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, await pdf.save());
@@ -147,7 +173,8 @@ async function saveManifest(manifest: Manifest): Promise<string> {
 
 /* ---------- verifying ---------- */
 
-// Check one PDF. With a name, look for that exact stamp.
+// Check one PDF. If a buyer name is supplied, look for that person in the
+// Subject metadata written during stamping.
 async function checkPdf(file: string, wantedName?: string): Promise<Result> {
   let subject: string | undefined;
   try {
@@ -161,20 +188,29 @@ async function checkPdf(file: string, wantedName?: string): Promise<Result> {
     return { file, ok: false, message: "Could not read this PDF" };
   }
 
-  const stamp = subject?.trim();
+  const buyers = parseSubjectBuyers(subject);
 
-  if (wantedName) {
-    // Compare case-insensitively so "jane smith" matches "Jane Smith".
-    if (stamp?.toLowerCase() === wantedName.trim().toLowerCase()) {
-      return { file, ok: true, message: `Stamp for ${wantedName} found` };
-    }
-    return { file, ok: false, message: `No stamp for ${wantedName}` };
-  }
+	if (wantedName) {
+	  const found = buyers.some(
+		(buyer) =>
+		  buyer.toLowerCase() ===
+		  wantedName.trim().toLowerCase(),
+	  );
 
-  if (!stamp) {
+	  return {
+		file,
+		ok: found,
+		message: found
+		  ? `Buyer ${wantedName} found`
+		  : `Buyer ${wantedName} not found`,
+	  };
+	}
+
+  if (buyers.length === 0){
     return { file, ok: false, message: "No stamp found" };
   }
-  return { file, ok: true, message: `Stamp found: ${stamp}` };
+  return { file, ok: true, message: `Buyers: ${buyers.join(", ")}`,
+};
 }
 
 function printResult(result: Result, base?: string) {
@@ -190,69 +226,120 @@ function printResult(result: Result, base?: string) {
 /* ---------- menu actions ---------- */
 
 async function stampFlow(rl: Interface) {
-  const input = await rl.question(
-    "Buyer names (separate with commas or new lines): ",
-  );
-  const buyerNames = parseBuyerNames(input);
-  if (buyerNames.length === 0) {
-    console.log("No buyer names entered. Nothing to do.\n");
+  console.log("License mode:");
+  console.log("1) One PDF per buyer");
+  console.log("2) Shared PDF for multiple buyers");
+
+  const mode = (
+    await rl.question("\nChoose 1 or 2 (default 1): ")
+  ).trim() || "1";
+
+  let buyerGroups: string[][] = [];
+  let allRecipients: string[] = [];
+
+  if (mode === "1") {
+    const input = await rl.question(
+      "Buyer names (separate with commas or new lines): ",
+    );
+
+    const buyerNames = parseBuyerNames(input);
+
+    if (buyerNames.length === 0) {
+      console.log("No buyer names entered. Nothing to do.\n");
+      return;
+    }
+
+    buyerGroups = buyerNames.map((name) => [name]);
+    allRecipients = buyerNames;
+  } else if (mode === "2") {
+    const input = await rl.question(
+      "\nEnter buyer groups (one group per line).\n" +
+        "Examples:\n" +
+        "Jane Smith, John Doe\n" +
+        "Acme Ltd\n" +
+        "Bob Jones, Mary Jones\n\n" +
+        "Buyer groups: ",
+    );
+
+    buyerGroups = parseBuyerGroups(input);
+
+    if (buyerGroups.length === 0) {
+      console.log("No buyer groups entered. Nothing to do.\n");
+      return;
+    }
+
+    allRecipients = [...new Set(buyerGroups.flat())];
+  } else {
+    console.log("Invalid option.\n");
     return;
   }
 
-  // Ask once for the whole run. Anything other than y/yes means metadata only.
   const watermarkAnswer = (
-    await rl.question("Add visible CONFIDENTIAL watermark too? (y/N): ")
+    await rl.question(
+      "Add visible CONFIDENTIAL watermark too? (y/N): ",
+    )
   )
     .trim()
     .toLowerCase();
-  const withWatermark = watermarkAnswer === "y" || watermarkAnswer === "yes";
+
+  const withWatermark =
+    watermarkAnswer === "y" ||
+    watermarkAnswer === "yes";
 
   await mkdir(outDir, { recursive: true });
+
   for (const templateFile of templateFiles) {
-	  const templatePath = join(here, templateFile);
+    const templatePath = join(here, templateFile);
 
-	  console.log(`Processing template: ${templateFile}`);
+    console.log(`\nProcessing template: ${templateFile}`);
 
-	  const templateBytes = await readFile(templatePath);
+    const templateBytes = await readFile(templatePath);
 
-	  for (const buyerName of buyerNames) {
-		await stampOne(
-		  templateBytes,
-		  buyerName,
-		  templateFile,
-		  withWatermark,
-		);
+    for (const buyers of buyerGroups) {
+      await stampOne(
+        templateBytes,
+        buyers,
+        templateFile,
+        withWatermark,
+      );
 
-		console.log(
-		  `Stamped ${templateFile} for ${buyerName}${
-			withWatermark ? " (watermarked)" : ""
-		  }`,
-		);
-	  }
+      console.log(
+        `Stamped ${templateFile} for ${buyers.join(", ")}${
+          withWatermark ? " (watermarked)" : ""
+        }`,
+      );
+    }
   }
 
+  const runId = createRunId();
+
   const manifestPath = await saveManifest({
-    runId: createRunId(),
+    runId,
     createdAt: new Date().toISOString(),
     template: `${templateFiles.length} templates`,
-    recipients: buyerNames,
+    recipients: allRecipients,
     watermark: withWatermark,
+    mode: mode === "1" ? "single" : "shared",
   });
+
   console.log(`\nManifest saved: ${manifestPath}`);
 
-  // Check each new file for its own buyer's stamp straight after writing it.
   console.log("\nVerifying new files...\n");
-	for (const templateFile of templateFiles) {
-	  for (const buyerName of buyerNames) {
-		printResult(
-		  await checkPdf(
-			outputPath(buyerName, templateFile),
-			buyerName,
-		  ),
-		  outDir,
-		);
-	  }
-	}			
+
+  for (const templateFile of templateFiles) {
+    for (const buyers of buyerGroups) {
+      const verifyName = buyers[0];
+
+      printResult(
+        await checkPdf(
+          outputPath(buyers, templateFile),
+          verifyName,
+        ),
+        outDir,
+      );
+    }
+  }
+
   console.log();
 }
 

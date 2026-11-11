@@ -1,14 +1,14 @@
 # Training PDF Stamper
 
-Training PDF Stamper creates personalized copies of a PDF for each buyer. It can add a visible diagonal `CONFIDENTIAL` watermark to every page and stores the buyer's name in the PDF `Subject` metadata as `Licensed to <buyer name>`. Generated files are saved under `stamped/`.
+Training PDF Stamper creates personalized copies of a PDF for each buyer. It can add a visible diagonal `CONFIDENTIAL` watermark to every page and stores the stamped buyer names in the PDF `Subject` metadata as a semicolon-delimited list such as `Alice Smith; Bob Jones`. Generated files are saved under `stamped/`.
 
-> Important: the visible watermark is only a visual marker. The buyer name is stored in document metadata, and that metadata can be viewed, edited, or removed by other PDF tools. This tool is not a DRM or copy-protection system.
+> Important: the visible watermark is only a visual marker. The buyer names are stored in document metadata, and that metadata can be viewed, edited, or removed by other PDF tools. This tool is not a DRM or copy-protection system.
 
 ## Features
 
 - Creates one PDF per buyer from a configured template
 - Adds a light, semi-transparent diagonal `CONFIDENTIAL` watermark when requested
-- Writes the buyer identity into PDF metadata for verification
+- Writes buyer names into PDF metadata for verification as a semicolon-delimited `Subject`
 - Supports verifying a single PDF, a folder, or the generated `stamped/` output
 - Sanitizes buyer names into safe folder names for output files
 - Saves a JSON manifest for each run containing the run ID, timestamp, template name, and buyers
@@ -64,7 +64,7 @@ The tool then:
 - loads the configured template file
 - writes a copy to `stamped/<buyer name>/`
 - optionally adds a diagonal visible `CONFIDENTIAL` watermark
-- sets the PDF `Subject` metadata to `Licensed to <buyer name>`
+- stores the buyer names in the PDF `Subject` metadata as a semicolon-delimited list
 - saves a manifest in `stamped/manifests/`
 
 The template is configured in `stamp.tsx`:
@@ -104,7 +104,7 @@ Choose `2` to verify stamps. You can:
 - leave the path blank to scan the full `stamped/` directory
 - optionally require a buyer name to match exactly (case-insensitive)
 
-Verification reads the PDF metadata and looks for a `Subject` starting with `Licensed to `. It does not validate whether the visible watermark is present.
+Verification reads the PDF metadata and checks the `Subject` for the stamped buyer names in the stored semicolon-delimited list. It does not validate whether the visible watermark is present.
 
 ## Project files
 
